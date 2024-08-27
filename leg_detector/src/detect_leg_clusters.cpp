@@ -82,6 +82,18 @@ public:
         this->declare_parameter("use_scan_header_stamp_for_tfs", rclcpp::ParameterValue(false));
         this->declare_parameter("max_detected_clusters", rclcpp::ParameterValue(-1.0));
 
+        // Retrieve and define parameters
+        scan_topic = this->get_parameter("scan_topic").as_string();
+        fixed_frame_ = this->get_parameter("fixed_frame").as_string();
+        forest_file = this->get_parameter("forest_file").as_string();
+        detection_threshold_ = this->get_parameter("detection_threshold").as_double();
+        cluster_dist_euclid_ = this->get_parameter("cluster_dist_euclid").as_double();
+        min_points_per_cluster_ = this->get_parameter("min_points_per_cluster").as_double(); // Note: Changed from int to double
+        max_detect_distance_ = this->get_parameter("max_detect_distance").as_double();
+        marker_display_lifetime_ = this->get_parameter("marker_display_lifetime").as_double();
+        use_scan_header_stamp_for_tfs_ = this->get_parameter("use_scan_header_stamp_for_tfs").as_bool();
+        max_detected_clusters_ = this->get_parameter("max_detected_clusters").as_double();
+
         // Print the ROS parameters
         RCLCPP_INFO(this->get_logger(), "forest_file: %s", forest_file.c_str());
         RCLCPP_INFO(this->get_logger(), "scan_topic: %s", scan_topic.c_str());
@@ -101,6 +113,9 @@ public:
         latest_scan_header_stamp_with_tf_available_ = this->now();
         auto default_qos = rclcpp::QoS(rclcpp::SystemDefaultsQoS());
 
+        rclcpp::QoS qos_profile(rclcpp::KeepLast(10)); // KeepLast(10) is just an example depth
+        qos_profile.best_effort();
+
         /**Define the publishers and subscribers
          * This node will publish 2 topics
          * 1. visualization_marker  : message type - <visualization_msgs::Marker>
@@ -110,7 +125,7 @@ public:
          ***/
         markers_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("visualization_marker", 20);
         detected_leg_clusters_pub_ = this->create_publisher<leg_detector_msgs::msg::LegArray>("detected_leg_clusters", 20);
-        this->scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(scan_topic, default_qos, std::bind(&DetectLegClusters::laserCallback, this, std::placeholders::_1));
+        this->scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(scan_topic, qos_profile, std::bind(&DetectLegClusters::laserCallback, this, std::placeholders::_1));
 
         buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tfl_ = std::make_shared<tf2_ros::TransformListener>(*buffer_);

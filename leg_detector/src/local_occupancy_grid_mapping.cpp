@@ -69,6 +69,20 @@ public:
         this->declare_parameter("cluster_dist_euclid", rclcpp::ParameterValue(0.13));
         this->declare_parameter("min_points_per_cluster", rclcpp::ParameterValue(3));
 
+        scan_topic = this->get_parameter("scan_topic").as_string();
+        fixed_frame_ = this->get_parameter("fixed_frame").as_string();
+        base_frame_ = this->get_parameter("base_frame").as_string();
+        local_map_topic = this->get_parameter("local_map_topic").as_string();
+        resolution_ = this->get_parameter("local_map_resolution").as_double();
+        width_ = this->get_parameter("local_map_cells_per_side").as_int();
+        invalid_measurements_are_free_space_ = this->get_parameter("invalid_measurements_are_free_space").as_bool();
+        unseen_is_freespace_ = this->get_parameter("unseen_is_free_space").as_bool();
+        use_scan_header_stamp_for_tfs_ = this->get_parameter("use_scan_header_stamp_for_tfs").as_bool();
+        shift_threshold_ = this->get_parameter("shift_threshold").as_double();
+        reliable_inf_range_ = this->get_parameter("reliable_inf_range").as_double();
+        cluster_dist_euclid_ = this->get_parameter("cluster_dist_euclid").as_double();
+        min_points_per_cluster_ = this->get_parameter("min_points_per_cluster").as_int();
+
         // Initialize map
         // All probabilities are held in log-space
         l0_ = logit(UNKNOWN);
