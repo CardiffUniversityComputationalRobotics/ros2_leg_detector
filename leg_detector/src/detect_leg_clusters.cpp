@@ -111,10 +111,6 @@ public:
         feat_count_ = forest->getVarCount();
 
         latest_scan_header_stamp_with_tf_available_ = this->now();
-        auto default_qos = rclcpp::QoS(rclcpp::SystemDefaultsQoS());
-
-        rclcpp::QoS qos_profile(rclcpp::KeepLast(10)); // KeepLast(10) is just an example depth
-        qos_profile.best_effort();
 
         /**Define the publishers and subscribers
          * This node will publish 2 topics
@@ -125,7 +121,7 @@ public:
          ***/
         markers_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("visualization_marker", 20);
         detected_leg_clusters_pub_ = this->create_publisher<leg_detector_msgs::msg::LegArray>("detected_leg_clusters", 20);
-        this->scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(scan_topic, qos_profile, std::bind(&DetectLegClusters::laserCallback, this, std::placeholders::_1));
+        this->scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(scan_topic, rclcpp::QoS(rclcpp::SensorDataQoS()), std::bind(&DetectLegClusters::laserCallback, this, std::placeholders::_1));
 
         buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tfl_ = std::make_shared<tf2_ros::TransformListener>(*buffer_);

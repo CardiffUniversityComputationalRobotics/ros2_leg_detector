@@ -47,7 +47,7 @@ class OccupancyGridMapping : public rclcpp::Node
 {
 public:
     OccupancyGridMapping() : Node("OccupancyGridMapping"),
-                             scan_sub_(this, std::string("scan")),
+                             //  scan_sub_(this, "/scan"),
                              non_leg_clusters_sub_(this, "non_leg_clusters"),
                              sync(scan_sub_, non_leg_clusters_sub_, 100)
     {
@@ -107,7 +107,10 @@ public:
             this->get_node_timers_interface());
         buffer_->setCreateTimerInterface(timer_interface);
 
-        scan_sub_.subscribe(this, scan_topic);
+        // rclcpp::QoS sensor_qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+        // scan_sub_.subscribe(this, scan_topic_, sensor_qos.get_rmw_qos_profile());
+
+        scan_sub_.subscribe(this, "/scan", rclcpp::QoS(rclcpp::SensorDataQoS()).get_rmw_qos_profile());
 
         // To coordinate callback for both laser scan message and a non_leg_clusters message
         sync.registerCallback(std::bind(&OccupancyGridMapping::laserAndLegCallback, this, std::placeholders::_1, std::placeholders::_2));
