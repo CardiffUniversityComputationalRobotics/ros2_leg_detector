@@ -37,8 +37,7 @@
 #include <opencv/cxcore.h>
 #include <opencv/cv.h>
 
-
-std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::SampleSet* cluster, const sensor_msgs::msg::LaserScan& scan)
+std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::SampleSet *cluster, const sensor_msgs::msg::LaserScan &scan)
 {
     // Number of points
     int num_points = cluster->size();
@@ -65,7 +64,7 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
     // Computer distance to laser scanner
     float distance = sqrt(x_median * x_median + y_median * y_median);
 
-    //Compute std and avg diff from median
+    // Compute std and avg diff from median
     double sum_std_diff = 0.0;
     double sum_med_diff = 0.0;
 
@@ -87,40 +86,41 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
     int prev_ind = (*first)->index - 1;
     int next_ind = (*last)->index + 1;
 
-    float occluded_left = 1; 
+    float occluded_left = 1;
     float occluded_right = 1;
 
     if (prev_ind >= 0)
     {
-        laser_processor::Sample* prev = laser_processor::Sample::Extract(prev_ind, scan);
+        laser_processor::Sample *prev = laser_processor::Sample::Extract(prev_ind, scan);
         if (prev != NULL)
         {
 
             if ((*first)->range < prev->range or prev->range < 0.01)
-            occluded_left = 0;
-      
-            delete prev;      
+                occluded_left = 0;
+
+            delete prev;
         }
     }
 
     if (next_ind < (int)scan.ranges.size())
     {
-        laser_processor::Sample* next = laser_processor::Sample::Extract(next_ind, scan);
+        laser_processor::Sample *next = laser_processor::Sample::Extract(next_ind, scan);
         if (next != NULL)
         {
 
             if ((*last)->range < next->range or next->range < 0.01)
                 occluded_right = 0;
-      
+
             delete next;
         }
     }
 
     // Compute width - euclidian distance between first + last points
-    float width = sqrt( pow( (*first)->x - (*last)->x, 2) + pow((*first)->y - (*last)->y, 2));
+    float width = sqrt(pow((*first)->x - (*last)->x, 2) + pow((*first)->y - (*last)->y, 2));
 
     // Compute Linearity
-    CvMat* points = cvCreateMat(num_points, 2, CV_64FC1);
+    CvMat *points = cvCreateMat(num_points, 2, CV_64FC1);
+
     {
         int j = 0;
         for (laser_processor::SampleSet::iterator i = cluster->begin(); i != cluster->end(); i++)
@@ -131,12 +131,12 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
         }
     }
 
-    CvMat* W = cvCreateMat(2, 2, CV_64FC1);
-    CvMat* U = cvCreateMat(num_points, 2, CV_64FC1);
-    CvMat* V = cvCreateMat(2, 2, CV_64FC1);
+    CvMat *W = cvCreateMat(2, 2, CV_64FC1);
+    CvMat *U = cvCreateMat(num_points, 2, CV_64FC1);
+    CvMat *V = cvCreateMat(2, 2, CV_64FC1);
     cvSVD(points, W, U, V);
 
-    CvMat* rot_points = cvCreateMat(num_points, 2, CV_64FC1);
+    CvMat *rot_points = cvCreateMat(num_points, 2, CV_64FC1);
     cvMatMul(U, W, rot_points);
 
     float linearity = 0.0;
@@ -145,20 +145,20 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
         linearity += pow(cvmGet(rot_points, i, 1), 2);
     }
 
-    cvReleaseMat(&points);
+    // cvReleaseMat(&points);
     points = 0;
-    cvReleaseMat(&W);
+    // cvReleaseMat(&W);
     W = 0;
-    cvReleaseMat(&U);
+    // cvReleaseMat(&U);
     U = 0;
-    cvReleaseMat(&V);
+    // cvReleaseMat(&V);
     V = 0;
-    cvReleaseMat(&rot_points);
+    // cvReleaseMat(&rot_points);
     rot_points = 0;
 
     // Compute Circularity
-    CvMat* A = cvCreateMat(num_points, 3, CV_64FC1);
-    CvMat* B = cvCreateMat(num_points, 1, CV_64FC1);
+    CvMat *A = cvCreateMat(num_points, 3, CV_64FC1);
+    CvMat *B = cvCreateMat(num_points, 1, CV_64FC1);
     {
         int j = 0;
         for (laser_processor::SampleSet::iterator i = cluster->begin(); i != cluster->end(); i++)
@@ -174,7 +174,7 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
             j++;
         }
     }
-    CvMat* sol = cvCreateMat(3, 1, CV_64FC1);
+    CvMat *sol = cvCreateMat(3, 1, CV_64FC1);
 
     cvSolve(A, B, sol, CV_SVD);
 
@@ -182,11 +182,11 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
     float yc = cvmGet(sol, 1, 0);
     float rc = sqrt(pow(xc, 2) + pow(yc, 2) - cvmGet(sol, 2, 0));
 
-    cvReleaseMat(&A);
+    // cvReleaseMat(&A);
     A = 0;
-    cvReleaseMat(&B);
+    // cvReleaseMat(&B);
     B = 0;
-    cvReleaseMat(&sol);
+    // cvReleaseMat(&sol);
     sol = 0;
 
     float circularity = 0.0;
@@ -198,10 +198,10 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
     // Radius
     float radius = rc;
 
-    //Curvature:
+    // Curvature:
     float mean_curvature = 0.0;
 
-    //Boundary length:
+    // Boundary length:
     float boundary_length = 0.0;
     float last_boundary_seg = 0.0;
 
@@ -283,7 +283,6 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
         float mry = (*last)->y - (*mid)->y;
         float L_mr = sqrt(mrx * mrx + mry * mry);
 
-
         float A = (mlx * mrx + mly * mry) / pow(L_mr, 2);
         float B = (mlx * mry - mly * mrx) / pow(L_mr, 2);
 
@@ -306,17 +305,17 @@ std::vector<float> ClusterFeatures::calcClusterFeatures(const laser_processor::S
     std::vector<float> features;
 
     // features from "Using Boosted Features for the Detection of People in 2D Range Data"
-    features.push_back(num_points);           
-    features.push_back(std);                  
-    features.push_back(avg_median_dev);               
-    features.push_back(width);                
-    features.push_back(linearity);            
-    features.push_back(circularity);          
-    features.push_back(radius);               
-    features.push_back(boundary_length);  
-    features.push_back(boundary_regularity);      
-    features.push_back(mean_curvature);       
-    features.push_back(ang_diff);    
+    features.push_back(num_points);
+    features.push_back(std);
+    features.push_back(avg_median_dev);
+    features.push_back(width);
+    features.push_back(linearity);
+    features.push_back(circularity);
+    features.push_back(radius);
+    features.push_back(boundary_length);
+    features.push_back(boundary_regularity);
+    features.push_back(mean_curvature);
+    features.push_back(ang_diff);
     // feature from paper which cannot be calculated here: mean speed
 
     // Inscribed angular variance, I believe. Not sure what paper this is from
