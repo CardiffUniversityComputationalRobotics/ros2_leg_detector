@@ -48,7 +48,7 @@
 #include <algorithm>
 #include <bullet/LinearMath/btVector3.h>
 
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 /** @brief A namespace containing the laser processor helper classes */
 namespace laser_processor

@@ -16,8 +16,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-set (OpenCV_DIR /usr/local/include)
-include_directories(include ${OpenCV_INCLUDE_DIR})
+include_directories(include)
 
 
 # find dependencies
@@ -26,7 +25,8 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(leg_detector_msgs REQUIRED)
-find_package(OpenCV REQUIRED)
+# OpenCV 4 already installed on the system (libopencv-dev); only core and ml are used
+find_package(OpenCV 4 REQUIRED COMPONENTS core ml)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -53,7 +53,7 @@ add_executable (local_occupancy_grid_mapping
                 src/local_occupancy_grid_mapping.cpp
                 include/leg_detector/laser_processor.h
                 )
-ament_target_dependencies(local_occupancy_grid_mapping rclcpp leg_detector_msgs OpenCV sensor_msgs tf2 tf2_ros visualization_msgs nav_msgs tf2_geometry_msgs)
+ament_target_dependencies(local_occupancy_grid_mapping rclcpp leg_detector_msgs sensor_msgs tf2 tf2_ros visualization_msgs nav_msgs tf2_geometry_msgs)
 add_executable (inflated_human_scan
                 src/inflated_human_scan.cpp
                 )

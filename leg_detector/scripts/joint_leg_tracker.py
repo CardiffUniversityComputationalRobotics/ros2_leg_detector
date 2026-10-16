@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import rclpy
 from rclpy.node import Node
@@ -10,6 +10,7 @@ import signal
 
 # Custom messages
 from leg_detector_msgs.msg import Person, PersonArray, Leg, LegArray
+from pedsim_msgs.msg import AgentState, AgentStates
 
 # ROS messages
 from visualization_msgs.msg import Marker
@@ -23,7 +24,7 @@ import math
 from scipy.optimize import linear_sum_assignment
 import scipy.stats
 import scipy.spatial
-from geometry_msgs.msg import PointStamped, Point, Quaternion
+from geometry_msgs.msg import PointStamped, Point, Quaternion, TransformStamped
 import tf2_ros
 import tf2_py
 import tf2_geometry_msgs
@@ -177,6 +178,82 @@ class ObjectTracked:
 
 
 """
+A tracked person published as a pedsim agent, in the world frame
+"""
+
+
+class TrackedAgent:
+
+    def __init__(self, agent_id, xy, stamp):
+        self.id = agent_id
+        self.xy = np.array(xy, dtype=np.float64)
+        self.vel = np.zeros(2)
+        self.heading = 0.0  # unknown until the person moves
+        self.moving = False
+        self.stamp = stamp  # time of the last update
+
+
+"""
+Gives every tracked person an agent id and estimates their velocity and heading in the
+world frame from their previous and current positions, the same way dr_spaam_ros does.
+Ids of people no longer tracked are reused, so they stay as few as the people tracked at once.
+"""
+
+
+class AgentStateEstimator:
+
+    def __init__(self, velocity_smoothing_time, min_speed):
+        self.velocity_smoothing_time = velocity_smoothing_time
+        self.min_speed = min_speed
+        self.agents = {}  # person id_num -> TrackedAgent
+
+    """
+    Update the agent of person <person_id> with its world position <xy> at time <stamp> [s]
+    """
+
+    def update(self, person_id, xy, stamp):
+        xy = np.array(xy, dtype=np.float64)
+        agent = self.agents.get(person_id)
+        if agent is None:
+            agent = TrackedAgent(self.free_id(), xy, stamp)
+            self.agents[person_id] = agent
+            return agent
+
+        dt = stamp - agent.stamp
+        if dt > 0.0:
+            # velocity from the previous and current position, low-pass filtered
+            alpha = 1.0
+            if self.velocity_smoothing_time > 0.0:
+                alpha = 1.0 - math.exp(-dt / self.velocity_smoothing_time)
+            agent.vel += alpha * ((xy - agent.xy) / dt - agent.vel)
+
+            # the heading follows the walking direction, standing people keep it
+            agent.moving = math.hypot(agent.vel[0], agent.vel[1]) >= self.min_speed
+            if agent.moving:
+                agent.heading = math.atan2(agent.vel[1], agent.vel[0])
+
+        agent.xy = xy
+        agent.stamp = stamp
+        return agent
+
+    """
+    Forget the people that are no longer tracked, so their agent ids can be reused
+    """
+
+    def keep_only(self, person_ids):
+        for person_id in list(self.agents):
+            if person_id not in person_ids:
+                del self.agents[person_id]
+
+    def free_id(self):
+        used_ids = {agent.id for agent in self.agents.values()}
+        agent_id = 0
+        while agent_id in used_ids:
+            agent_id += 1
+        return agent_id
+
+
+"""
 Tracker for tracking all the people and objects
 """
 
@@ -221,6 +298,11 @@ class KalmanMultiTrackerNode(Node):
         self.declare_parameter("in_free_space_threshold", 0.06)
         self.declare_parameter("confidence_percentile", 0.90)
         self.declare_parameter("max_std", 0.9)
+        # people published as pedsim agents with agent_<id> tf frames (like dr_spaam_ros)
+        self.declare_parameter("publish_agents", True)
+        self.declare_parameter("world_frame", "map")
+        self.declare_parameter("velocity_smoothing_time", 0.5)
+        self.declare_parameter("min_speed", 0.3)
 
         # Get ROS parameters
         self.fixed_frame = (
@@ -274,6 +356,18 @@ class KalmanMultiTrackerNode(Node):
             .double_value
         )
         self.max_std = self.get_parameter("max_std").get_parameter_value().double_value
+        self.publish_agents = (
+            self.get_parameter("publish_agents").get_parameter_value().bool_value
+        )
+        self.world_frame = (
+            self.get_parameter("world_frame").get_parameter_value().string_value
+        )
+        self.agent_estimator = AgentStateEstimator(
+            self.get_parameter("velocity_smoothing_time")
+            .get_parameter_value()
+            .double_value,
+            self.get_parameter("min_speed").get_parameter_value().double_value,
+        )
 
         self.mahalanobis_dist_gate = scipy.stats.norm.ppf(
             1.0 - (1.0 - self.confidence_percentile) / 2.0, 0, 1.0
@@ -292,6 +386,11 @@ class KalmanMultiTrackerNode(Node):
         self.non_leg_clusters_pub = self.create_publisher(
             LegArray, "non_leg_clusters", 300
         )
+        if self.publish_agents:
+            self.agents_pub = self.create_publisher(
+                AgentStates, "/pedsim_simulator/simulated_agents", 10
+            )
+            self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
         # ROS subscribers
         self.detected_clusters_sub = self.create_subscription(
@@ -685,6 +784,8 @@ class KalmanMultiTrackerNode(Node):
         # Publish to rviz and /people_tracked topic.
         self.publish_tracked_objects(now)
         self.publish_tracked_people(now)
+        if self.publish_agents:
+            self.publish_agent_states(now)
 
     """
     Publish markers of tracked objects to Rviz
@@ -988,6 +1089,88 @@ class KalmanMultiTrackerNode(Node):
 
         # Publish people tracked message
         self.people_tracked_pub.publish(people_tracked_msg)
+
+    """
+    Publish the tracked people to /pedsim_simulator/simulated_agents in <self.world_frame>,
+    with an agent_<id> tf frame each, so no extra node is needed (like dr_spaam_ros)
+    """
+
+    def publish_agent_states(self, now):
+        # forget people no longer tracked, so their agent ids can be reused
+        self.agent_estimator.keep_only(
+            {track.id_num for track in self.objects_tracked if track.is_person}
+        )
+
+        try:
+            # transform when the scan was taken (<now>), the robot may have moved since
+            try:
+                fixed_to_world = self.buffer.lookup_transform(
+                    self.world_frame, self.fixed_frame, rclpy.time.Time.from_msg(now)
+                )
+            except tf2_ros.TransformException:
+                self.get_logger().warn(
+                    "No transform at the scan time, using the latest one",
+                    throttle_duration_sec=5.0,
+                )
+                fixed_to_world = self.buffer.lookup_transform(
+                    self.world_frame, self.fixed_frame, rclpy.time.Time()
+                )
+        except tf2_ros.TransformException:
+            self.get_logger().warn(
+                "No transform from %s to %s, not publishing agents"
+                % (self.fixed_frame, self.world_frame),
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        stamp = now.sec + now.nanosec * 1e-9
+        agent_states = AgentStates()
+        agent_states.header.stamp = now
+        agent_states.header.frame_id = self.world_frame
+        agent_tfs = []
+
+        for person in self.objects_tracked:
+            if not person.is_person or not (
+                self.publish_occluded or person.seen_in_current_scan
+            ):
+                continue
+
+            # people are tracked in <self.fixed_frame>, which can move with the robot
+            # (e.g. the laser), so velocity and heading are estimated in the world frame
+            ps = PointStamped()
+            ps.point.x = float(person.pos_x)
+            ps.point.y = float(person.pos_y)
+            ps = tf2_geometry_msgs.do_transform_point(ps, fixed_to_world)
+            agent = self.agent_estimator.update(
+                person.id_num, (ps.point.x, ps.point.y), stamp
+            )
+
+            agent_tf = TransformStamped()
+            agent_tf.header.stamp = now
+            agent_tf.header.frame_id = self.world_frame
+            agent_tf.child_frame_id = "agent_" + str(agent.id)
+            agent_tf.transform.translation.x = ps.point.x
+            agent_tf.transform.translation.y = ps.point.y
+            agent_tf.transform.rotation = self.ToQuaternion(agent.heading, 0, 0)
+            agent_tfs.append(agent_tf)
+
+            # standing people are reported with zero velocity
+            vel = agent.vel if agent.moving else (0.0, 0.0)
+
+            agent_state = AgentState()
+            agent_state.header.stamp = now
+            agent_state.header.frame_id = self.world_frame
+            agent_state.id = agent.id
+            agent_state.pose.position.x = ps.point.x
+            agent_state.pose.position.y = ps.point.y
+            agent_state.pose.orientation = self.ToQuaternion(agent.heading, 0, 0)
+            agent_state.twist.linear.x = float(vel[0])
+            agent_state.twist.linear.y = float(vel[1])
+            agent_states.agent_states.append(agent_state)
+
+        if agent_tfs:
+            self.tf_broadcaster.sendTransform(agent_tfs)
+        self.agents_pub.publish(agent_states)
 
     def ToQuaternion(self, yaw, pitch, roll):
         cy = math.cos(yaw * 0.5)

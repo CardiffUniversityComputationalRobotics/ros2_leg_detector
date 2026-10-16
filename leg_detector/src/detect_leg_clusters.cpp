@@ -38,7 +38,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/create_timer_interface.h>
 #include <tf2_ros/create_timer_ros.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2/transform_datatypes.h>
 #include <visualization_msgs/msg/marker.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
